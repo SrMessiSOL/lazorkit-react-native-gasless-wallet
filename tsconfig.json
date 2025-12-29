@@ -1,0 +1,20 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": false,
+     "noUnusedLocals": false,  // Or adjust other lint rules
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "lazorkit.d.ts",
+     "types/lazorkit.d.ts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+, "metro.config.js"  ]
+}
