@@ -1,13 +1,12 @@
 "use client"
 
-import { LazorKitProvider, useWallet } from "@lazorkit/wallet-mobile-adapter"
+import { useWallet } from "@lazorkit/wallet-mobile-adapter"
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
   Alert,
-  SafeAreaView,
   TouchableOpacity,
   Modal,
   RefreshControl,
@@ -25,20 +24,11 @@ import { Buffer } from "buffer"
 import { Linking } from "react-native"
 import { DEV_API_URLS } from "@raydium-io/raydium-sdk-v2"
 import { Ionicons } from "@expo/vector-icons"
+import { CLUSTER, RPC_URL } from "../config/solana"
+import { TOKENS } from "../constants/tokens"
 
-// Root App Wrapper
 export default function App() {
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <LazorKitProvider
-        rpcUrl="https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY"
-        portalUrl="https://portal.lazor.sh"
-        configPaymaster={{ paymasterUrl: "https://kora.devnet.lazorkit.com" }}
-      >
-        <WalletScreen />
-      </LazorKitProvider>
-    </SafeAreaView>
-  )
+  return <WalletScreen />
 }
 
 // Wallet Screen with Connect and Swap
@@ -56,11 +46,6 @@ function WalletScreen() {
   const [solPrice, setSolPrice] = useState(0)
   const [activityHistory, setActivityHistory] = useState<any[]>([])
 
-  const TOKENS = {
-    SOL: { symbol: "SOL", mint: "So11111111111111111111111111111111111111112", decimals: 9 },
-    USDC: { symbol: "USDC", mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", decimals: 6 }, // Devnet USDC
-  }
-
   const fetchSolPrice = async () => {
     try {
       const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
@@ -74,13 +59,12 @@ function WalletScreen() {
 
   const fetchBalances = async () => {
     if (!smartWalletPubkey) return
-    const connection = new Connection("https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY")
+    const connection = new Connection(RPC_URL)
     const sol = (await connection.getBalance(smartWalletPubkey)) / LAMPORTS_PER_SOL
     setSolBalance(sol)
 
     try {
-      const usdcMint = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU") // Devnet USDC
-      const usdcAta = await getAssociatedTokenAddress(usdcMint, smartWalletPubkey, true)
+      const usdcAta = await getAssociatedTokenAddress(new PublicKey(TOKENS.USDC.mint), smartWalletPubkey, true)
       const usdcAcc = await getAccount(connection, usdcAta)
       const usdc = Number(usdcAcc.amount) / 10 ** 6
       setUsdcBalance(usdc)
@@ -92,7 +76,7 @@ function WalletScreen() {
   const fetchActivityHistory = async () => {
     if (!smartWalletPubkey) return
     try {
-      const connection = new Connection("https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY")
+      const connection = new Connection(RPC_URL)
       const signatures = await connection.getSignaturesForAddress(smartWalletPubkey, { limit: 20 })
 
       const history = signatures.map((sig) => ({
@@ -199,7 +183,7 @@ function WalletScreen() {
       if (!quoteJson.success) throw new Error(quoteJson.msg || "Quote error")
 
       // Prepare swap request
-      const connection = new Connection("https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY")
+      const connection = new Connection(RPC_URL)
 
       const swapRequestBody: any = {
         computeUnitPriceMicroLamports: "100000",
@@ -269,7 +253,7 @@ function WalletScreen() {
           instructions: filteredInstructions,
           transactionOptions: {
             computeUnitLimit: 600_000,
-            clusterSimulation: "devnet",
+            clusterSimulation: CLUSTER,
             ...(addressLookupTableAccounts.length > 0 && { addressLookupTableAccounts }),
           },
         },
@@ -316,6 +300,10 @@ function WalletScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#14F195" colors={["#14F195"]} />
         }
       >
+        <View style={styles.networkPill}>
+          <Ionicons name="planet-outline" size={14} color="#14F195" />
+          <Text style={styles.networkPillText}>Connected to {CLUSTER.toUpperCase()}</Text>
+        </View>
         <View style={styles.balanceHeader}>
           <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
             <Ionicons name="log-out-outline" size={20} color="#ff4444" />
@@ -515,10 +503,6 @@ function WalletScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
   darkContainer: {
     flex: 1,
     backgroundColor: "#000",
@@ -579,6 +563,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#ff4444",
     fontWeight: "600",
+  },
+  networkPill: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    backgroundColor: "#10261f",
+    borderColor: "#1b4d3d",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  networkPillText: {
+    color: "#14F195",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.4,
   },
   balanceHeader: {
     alignItems: "center",
