@@ -25,7 +25,8 @@ Deployed on Devnet: [Coming Soon]
 ## Prerequisites
 
 - Node.js 18+ and npm/yarn
-- Expo CLI: `npm install -g expo-cli`
+- Expo CLI (recommended): use local CLI via `npx expo`
+- Optional global Expo CLI: `npm install -g expo-cli`
 - iOS Simulator (macOS) or Android Emulator
 - Physical device recommended for biometric testing
 
@@ -37,6 +38,15 @@ Deployed on Devnet: [Coming Soon]
 git clone https://github.com/yourusername/lazorkit-mobile-wallet.git
 cd lazorkit-mobile-wallet
 npm install
+
+# Verify Expo CLI from local dependencies
+npx expo --version
+```
+
+If `npx expo` is not available in your environment, install Expo CLI globally:
+
+```bash
+npm install -g expo-cli
 ```
 
 ### 2. Configure Environment
@@ -61,17 +71,11 @@ npm run ios
 npm run android
 ```
 
-### 4. Update Redirect URL
+### 4. Redirect URL Handling
 
-In `app/index.tsx`, replace the hardcoded redirect URL with your development URL:
+The app now generates the redirect URL automatically using Expo Linking (`ExpoLinking.createURL("/")`).
 
-```typescript
-// Find this line
-await connect({ redirectUrl: 'exp://myapp' });
-
-// Replace with your local IP from Expo CLI output
-await connect({ redirectUrl: 'exp://myapp' });
-```
+If wallet connect still fails on a physical device, ensure your Expo scheme/deep-link settings are configured correctly in `app.json` and that the app is opened from the same Expo runtime session used to initiate connect.
 
 ## Project Structure
 
@@ -79,6 +83,7 @@ await connect({ redirectUrl: 'exp://myapp' });
 ├── app/
 │   ├── index.tsx             # Main wallet screen
 │   └── _layout.tsx           # Root layout with providers
+├── global.css                # NativeWind/Tailwind global styles
 ├── assets/
 │   ├── fonts/                # Fonts 
 │   └── images/               # Images
@@ -91,7 +96,7 @@ await connect({ redirectUrl: 'exp://myapp' });
 │     ├── TUTORIAL_1.md       # Tutorial 1
 │     └── TUTORIAL_2.md       # Tutorial 2
 ├── providers/
-│   └── WalletProvider.tsx    # Walle configuration
+│   └── WalletProvider.tsx    # Wallet configuration
 ```
 
 ## Tutorials
@@ -132,7 +137,8 @@ import { useWallet } from '@lazorkit/wallet-mobile-adapter';
 const { connect, isConnected, smartWalletPubkey } = useWallet();
 
 // Connect with biometrics
-await connect({ redirectUrl: 'exp://myapp' });
+const redirectUrl = ExpoLinking.createURL('/');
+await connect({ redirectUrl });
 ```
 
 ### 3. Gasless Transaction
@@ -147,7 +153,7 @@ const signature = await signAndSendTransaction(
       clusterSimulation: 'devnet',
     },
   },
-  { redirectUrl: 'exp://myapp' }
+  { redirectUrl }
 );
 ```
 
@@ -175,25 +181,15 @@ const signature = await signAndSendTransaction(
 
 ### Custom RPC Endpoint
 
-Update the `rpcUrl` in `app/index.tsx`:
+Set `EXPO_PUBLIC_RPC_URL` in your `.env` file (or environment) to override the default devnet RPC:
 
-```typescript
-<LazorKitProvider
-  rpcUrl="https://your-custom-rpc.com"
-  // ...
->
+```bash
+EXPO_PUBLIC_RPC_URL=https://your-custom-rpc.com
 ```
 
 ### Custom Paymaster
 
-To use your own paymaster service:
-
-```typescript
-<LazorKitProvider
-  configPaymaster={{ paymasterUrl: "https://your-paymaster.com" }}
-  // ...
->
-```
+Update `PAYMASTER_URL` in `config/solana.ts` if you want to point to your own paymaster service.
 
 ## Deployment
 
@@ -220,8 +216,8 @@ See [Expo's deployment guide](https://docs.expo.dev/distribution/introduction/)
 
 ### Redirect URL Errors
 
-- **Solution**: Update all `redirectUrl` values to match your Expo dev server URL
-- Check Expo CLI output for the correct URL
+- **Solution**: Ensure `ExpoLinking.createURL("/")` resolves to your active Expo runtime URL and the app scheme in `app.json` is correct
+- Check Expo CLI output to confirm the app is running on the same session used for connect
 
 ### Transaction Timeouts
 
