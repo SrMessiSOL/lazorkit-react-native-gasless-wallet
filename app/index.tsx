@@ -21,7 +21,8 @@ import { Image } from "react-native"
 import { useEffect } from "react"
 import { ScrollView } from "react-native"
 import { Buffer } from "buffer"
-import { Linking } from "react-native"
+import { Linking as RNLinking } from "react-native"
+import * as ExpoLinking from "expo-linking"
 import { DEV_API_URLS } from "@raydium-io/raydium-sdk-v2"
 import { Ionicons } from "@expo/vector-icons"
 import { CLUSTER, RPC_URL } from "../config/solana"
@@ -45,6 +46,7 @@ function WalletScreen() {
   const [swapAmount, setSwapAmount] = useState("")
   const [solPrice, setSolPrice] = useState(0)
   const [activityHistory, setActivityHistory] = useState<any[]>([])
+  const redirectUrl = ExpoLinking.createURL("/")
 
   const fetchSolPrice = async () => {
     try {
@@ -116,10 +118,10 @@ function WalletScreen() {
   const handleConnect = async () => {
     setIsLoading(true)
     try {
-      await connect({ redirectUrl: "exp://myapp" })
+      await connect({ redirectUrl })
     } catch (error) {
       console.error("Connect error:", error)
-      Alert.alert("Error", "Connection failed")
+      Alert.alert("Connection failed", `Please verify your app redirect URL and LazorKit setup.\n\nRedirect: ${redirectUrl}`)
     } finally {
       setIsLoading(false)
     }
@@ -146,7 +148,7 @@ function WalletScreen() {
     try {
       await Clipboard.setStringAsync(smartWalletPubkey.toBase58())
       Alert.alert("Address Copied", "Paste your address in Circle faucet")
-      Linking.openURL("https://faucet.circle.com/")
+      RNLinking.openURL("https://faucet.circle.com/")
     } catch (error) {
       Alert.alert("Error", "Failed to open faucet")
     }
@@ -257,7 +259,7 @@ function WalletScreen() {
             ...(addressLookupTableAccounts.length > 0 && { addressLookupTableAccounts }),
           },
         },
-        { redirectUrl: "exp://myapp" },
+        { redirectUrl },
       )
 
       await fetchBalances()
@@ -281,7 +283,7 @@ function WalletScreen() {
         <View style={styles.welcomeContainer}>
           <Image source={{ uri: "https://cryptologos.cc/logos/solana-sol-logo.png" }} style={styles.welcomeLogo} />
           <Text style={styles.welcomeTitle}>Lazorkit Wallet</Text>
-          <Text style={styles.welcomeSubtitle}>Gasless Solana swaps with passkey security</Text>
+          <Text style={styles.welcomeSubtitle}>Gasless Solana swaps with passkey security on Devnet</Text>
 
           <TouchableOpacity style={styles.connectButton} onPress={handleConnect} disabled={isLoading}>
             <Ionicons name="finger-print" size={24} color="#000" />
