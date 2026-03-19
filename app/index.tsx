@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import * as anchor from '@coral-xyz/anchor';
+import { LinearGradient } from 'expo-linear-gradient';
 import { LazorKitProvider, useWallet } from '@lazorkit/wallet-mobile-adapter';
 
 const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
@@ -20,15 +21,34 @@ const REDIRECT_SIGN = 'prowallet://callback';
 
 const SOL_LAMPORTS = 1_000_000_000;
 
-function WalletPanel() {
+function LoginScreen({ onConnect, busy }: { onConnect: () => void | Promise<void>; busy?: boolean }) {
+  return (
+    <View style={styles.loginCard}>
+      <View style={styles.logoRing}>
+        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+      </View>
+
+      <Text style={styles.brandName}>LazorKit Wallet Pro</Text>
+      <Text style={styles.brandSubtitle}>Seedless access. Gasless execution. Institutional-grade mobile UX.</Text>
+
+      <Pressable style={[styles.ctaButton, busy && styles.buttonDisabled]} onPress={onConnect} disabled={busy}>
+        <LinearGradient colors={['#ef4444', '#fca5a5', '#ffffff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.ctaGradient}>
+          <Text style={styles.ctaLabel}>{busy ? 'Opening Lazor Login…' : 'Connect with LazorKit'}</Text>
+        </LinearGradient>
+      </Pressable>
+
+      <Text style={styles.helperText}>You will be redirected to Lazor login to choose your wallet provider.</Text>
+    </View>
+  );
+}
+
+function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
   const {
-    connect,
     disconnect,
     signAndSendTransaction,
     smartWalletPubkey,
     connection,
     isConnected,
-    isConnecting,
     isSigning,
   } = useWallet();
 
@@ -45,16 +65,20 @@ function WalletPanel() {
     setBalanceSol((lamports / SOL_LAMPORTS).toFixed(4));
   }, [connection, smartWalletPubkey]);
 
-  const onConnect = useCallback(async () => {
-    await connect({ redirectUrl: REDIRECT_HOME });
-    await refreshBalance();
-  }, [connect, refreshBalance]);
+  useEffect(() => {
+    if (isConnected && smartWalletPubkey) {
+      refreshBalance();
+    }
+  }, [isConnected, refreshBalance, smartWalletPubkey]);
 
-  const onDisconnect = useCallback(async () => {
+  const handleDisconnect = useCallback(async () => {
     await disconnect();
-    setLastSignature('');
+    setRecipient('');
+    setAmountSol('0.01');
     setBalanceSol('0.0000');
-  }, [disconnect]);
+    setLastSignature('');
+    onDisconnected();
+  }, [disconnect, onDisconnected]);
 
   const onSend = useCallback(async () => {
     if (!smartWalletPubkey) {
@@ -93,66 +117,63 @@ function WalletPanel() {
 
   return (
     <View style={styles.walletCard}>
-      <View style={styles.walletHeader}>
-        <Text style={styles.walletTitle}>Professional Seedless Wallet</Text>
-        <Text style={styles.walletSubtitle}>Secure, gasless Solana transfers on Devnet.</Text>
+      <View style={styles.walletTopRow}>
+        <View>
+          <Text style={styles.walletTitle}>Wallet Dashboard</Text>
+          <Text style={styles.walletSubtitle}>Gasless transfers on Solana Devnet</Text>
+        </View>
+
+        <Pressable style={styles.secondaryAction} onPress={handleDisconnect}>
+          <Text style={styles.secondaryActionLabel}>Disconnect</Text>
+        </Pressable>
       </View>
 
-      <View style={styles.infoPill}>
-        <Text style={styles.infoLabel}>Smart Wallet</Text>
-        <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
+      <View style={styles.pill}>
+        <Text style={styles.pillLabel}>SMART WALLET</Text>
+        <Text style={styles.pillValue} numberOfLines={1} ellipsizeMode="middle">
           {walletAddress}
         </Text>
       </View>
 
-      <View style={styles.balanceRow}>
-        <Text style={styles.balanceLabel}>Available Balance</Text>
-        <Text style={styles.balanceValue}>{balanceSol} SOL</Text>
-      </View>
+      <LinearGradient colors={['#450a0a', '#991b1b', '#fee2e2']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.balancePanel}>
+        <Text style={styles.balancePanelLabel}>Available Balance</Text>
+        <Text style={styles.balancePanelValue}>{balanceSol} SOL</Text>
+      </LinearGradient>
 
-      <View style={styles.row}>
-        <AppButton
-          title={isConnected ? 'Refresh Balance' : 'Connect Wallet'}
-          busy={isConnecting}
-          onPress={isConnected ? refreshBalance : onConnect}
-        />
-        <AppButton title="Disconnect" disabled={!isConnected} variant="secondary" onPress={onDisconnect} />
-      </View>
+      <Pressable style={styles.secondaryFull} onPress={refreshBalance}>
+        <Text style={styles.secondaryFullLabel}>Refresh Balance</Text>
+      </Pressable>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Recipient Address</Text>
+      <View style={styles.fieldWrap}>
+        <Text style={styles.fieldLabel}>Recipient Address</Text>
         <TextInput
           style={styles.input}
           value={recipient}
           onChangeText={setRecipient}
-          placeholder="Paste destination wallet"
+          placeholder="Paste recipient wallet"
           autoCapitalize="none"
           autoCorrect={false}
-          placeholderTextColor="#71717a"
+          placeholderTextColor="#737373"
         />
       </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Amount (SOL)</Text>
+      <View style={styles.fieldWrap}>
+        <Text style={styles.fieldLabel}>Amount (SOL)</Text>
         <TextInput
           style={styles.input}
           value={amountSol}
           onChangeText={setAmountSol}
           placeholder="0.01"
           keyboardType="decimal-pad"
-          placeholderTextColor="#71717a"
+          placeholderTextColor="#737373"
         />
       </View>
 
-      <AppButton
-        title={isSigning ? 'Sending Transaction…' : 'Send Gasless Transfer'}
-        disabled={!isConnected || isSigning}
-        onPress={onSend}
-      />
+      <AppButton title={isSigning ? 'Sending…' : 'Send Gasless Transfer'} disabled={!isConnected || isSigning} onPress={onSend} />
 
       {lastSignature ? (
         <View style={styles.signatureBox}>
-          <Text style={styles.signatureLabel}>Last Signature</Text>
+          <Text style={styles.signatureLabel}>LAST SIGNATURE</Text>
           <Text style={styles.signatureValue} numberOfLines={2} ellipsizeMode="middle">
             {lastSignature}
           </Text>
@@ -162,39 +183,14 @@ function WalletPanel() {
   );
 }
 
-function LoginScreen({ onContinue }: { onContinue: () => void }) {
-  return (
-    <View style={styles.loginCard}>
-      <View style={styles.logoWrap}>
-        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
-      </View>
-
-      <Text style={styles.brandName}>LazorKit Pro Wallet</Text>
-      <Text style={styles.brandTagline}>
-        Seedless onboarding, gasless execution, and a premium mobile wallet experience.
-      </Text>
-
-      <Pressable style={styles.ctaButton} onPress={onContinue}>
-        <Text style={styles.ctaLabel}>Log In & Continue</Text>
-      </Pressable>
-
-      <Text style={styles.hintText}>By continuing, you will be redirected to your secure wallet workspace.</Text>
-    </View>
-  );
-}
-
 function AppButton({
   title,
   onPress,
   disabled,
-  busy,
-  variant = 'primary',
 }: {
   title: string;
   onPress: () => void | Promise<void>;
   disabled?: boolean;
-  busy?: boolean;
-  variant?: 'primary' | 'secondary';
 }) {
   const handlePress = useCallback(async () => {
     try {
@@ -205,32 +201,51 @@ function AppButton({
   }, [onPress]);
 
   return (
-    <Pressable
-      style={[
-        styles.button,
-        variant === 'secondary' && styles.secondaryButton,
-        (disabled || busy) && styles.buttonDisabled,
-      ]}
-      disabled={disabled || busy}
-      onPress={handlePress}
-    >
-      <Text style={[styles.buttonLabel, variant === 'secondary' && styles.secondaryButtonLabel]}>{title}</Text>
+    <Pressable style={[styles.primaryAction, disabled && styles.buttonDisabled]} onPress={handlePress} disabled={disabled}>
+      <LinearGradient
+        colors={['#b91c1c', '#ef4444', '#ffffff']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.primaryActionGradient}
+      >
+        <Text style={styles.primaryActionLabel}>{title}</Text>
+      </LinearGradient>
     </Pressable>
   );
 }
 
 function AppContent() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { connect, isConnected, isConnecting } = useWallet();
 
-  const handleContinue = useCallback(() => {
-    setIsLoggedIn(true);
+  const [isLandingVisible, setIsLandingVisible] = useState(true);
+
+  const handleConnectFromLanding = useCallback(async () => {
+    await connect({ redirectUrl: REDIRECT_HOME });
+    setIsLandingVisible(false);
+  }, [connect]);
+
+  const handleDisconnected = useCallback(() => {
+    setIsLandingVisible(true);
   }, []);
+
+  useEffect(() => {
+    if (isConnected) {
+      setIsLandingVisible(false);
+    }
+  }, [isConnected]);
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.backgroundGlowTop} />
-      <View style={styles.backgroundGlowBottom} />
-      <View style={styles.content}>{isLoggedIn ? <WalletPanel /> : <LoginScreen onContinue={handleContinue} />}</View>
+      <LinearGradient colors={['#0a0a0a', '#230b0b', '#ffffff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.background}>
+        <View style={styles.overlay} />
+        <View style={styles.contentWrap}>
+          {isLandingVisible || !isConnected ? (
+            <LoginScreen onConnect={handleConnectFromLanding} busy={isConnecting} />
+          ) : (
+            <WalletPanel onDisconnected={handleDisconnected} />
+          )}
+        </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -251,204 +266,214 @@ export default function ProfessionalSeedlessGaslessWallet() {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: '#05060a',
+    backgroundColor: '#000',
   },
-  content: {
+  background: {
+    flex: 1,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  contentWrap: {
     flex: 1,
     justifyContent: 'center',
     padding: 20,
   },
-  backgroundGlowTop: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 140,
-    backgroundColor: '#1d4ed8',
-    opacity: 0.2,
-    top: -80,
-    left: -70,
-  },
-  backgroundGlowBottom: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 120,
-    backgroundColor: '#14b8a6',
-    opacity: 0.16,
-    bottom: -70,
-    right: -60,
-  },
   loginCard: {
     borderRadius: 24,
-    backgroundColor: '#10111a',
+    backgroundColor: '#0b0b0b',
     borderWidth: 1,
-    borderColor: '#222538',
-    paddingVertical: 28,
+    borderColor: '#262626',
     paddingHorizontal: 22,
+    paddingVertical: 30,
+    gap: 14,
     alignItems: 'center',
-    gap: 12,
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
   },
-  logoWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#171b2d',
-    borderWidth: 1,
-    borderColor: '#2c3358',
-    justifyContent: 'center',
+  logoRing: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 2,
+    borderColor: '#ef4444',
+    backgroundColor: '#111',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
   },
   logo: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
   },
   brandName: {
-    color: '#f8fafc',
-    fontSize: 24,
+    color: '#fff',
+    fontSize: 26,
     fontWeight: '800',
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
-  brandTagline: {
-    color: '#a1a1aa',
-    fontSize: 14,
+  brandSubtitle: {
+    color: '#d4d4d4',
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 8,
+    fontSize: 14,
+    lineHeight: 21,
   },
   ctaButton: {
     width: '100%',
-    backgroundColor: '#2563eb',
     borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  ctaGradient: {
     paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 2,
   },
   ctaLabel: {
-    color: '#f8fafc',
-    fontWeight: '700',
+    color: '#09090b',
+    fontWeight: '800',
     fontSize: 15,
   },
-  hintText: {
-    color: '#71717a',
+  helperText: {
+    color: '#a3a3a3',
     fontSize: 12,
     textAlign: 'center',
-    marginTop: 4,
   },
   walletCard: {
-    borderRadius: 22,
-    backgroundColor: '#10111a',
+    borderRadius: 24,
+    backgroundColor: '#090909',
     borderWidth: 1,
-    borderColor: '#222538',
+    borderColor: '#2a2a2a',
     padding: 18,
-    gap: 14,
+    gap: 13,
   },
-  walletHeader: {
-    gap: 4,
-  },
-  walletTitle: {
-    color: '#f8fafc',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  walletSubtitle: {
-    color: '#a1a1aa',
-    fontSize: 13,
-  },
-  infoPill: {
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#16182a',
-    borderWidth: 1,
-    borderColor: '#2b3257',
-    gap: 4,
-  },
-  infoLabel: {
-    color: '#94a3b8',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  infoValue: {
-    color: '#e2e8f0',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  balanceRow: {
+  walletTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  walletTitle: {
+    color: '#fff',
+    fontSize: 21,
+    fontWeight: '800',
+  },
+  walletSubtitle: {
+    color: '#d4d4d4',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  secondaryAction: {
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#525252',
+    backgroundColor: '#111',
+  },
+  secondaryActionLabel: {
+    color: '#fafafa',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pill: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#404040',
+    backgroundColor: '#141414',
+    padding: 12,
+    gap: 4,
+  },
+  pillLabel: {
+    color: '#a3a3a3',
+    fontSize: 11,
+    letterSpacing: 0.5,
+    fontWeight: '700',
+  },
+  pillValue: {
+    color: '#f5f5f5',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  balancePanel: {
+    borderRadius: 14,
+    padding: 14,
+  },
+  balancePanelLabel: {
+    color: '#1f2937',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  balancePanelValue: {
+    color: '#030712',
+    fontSize: 24,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  secondaryFull: {
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#404040',
+    backgroundColor: '#111',
+    paddingVertical: 10,
     alignItems: 'center',
   },
-  balanceLabel: {
-    color: '#94a3b8',
+  secondaryFullLabel: {
+    color: '#e5e5e5',
+    fontWeight: '700',
     fontSize: 13,
   },
-  balanceValue: {
-    color: '#22c55e',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  formGroup: {
+  fieldWrap: {
     gap: 6,
   },
-  inputLabel: {
-    color: '#cbd5e1',
+  fieldLabel: {
+    color: '#e5e5e5',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   input: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#30344f',
-    color: '#f8fafc',
-    backgroundColor: '#121527',
+    borderColor: '#404040',
+    backgroundColor: '#121212',
+    color: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 11,
-    fontSize: 14,
   },
-  button: {
-    flex: 1,
-    backgroundColor: '#2563eb',
+  primaryAction: {
     borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    overflow: 'hidden',
   },
-  secondaryButton: {
-    backgroundColor: '#1f2937',
-    borderWidth: 1,
-    borderColor: '#334155',
+  primaryActionGradient: {
+    paddingVertical: 13,
+    alignItems: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonLabel: {
-    color: '#fff',
-    fontWeight: '600',
-    textAlign: 'center',
-    fontSize: 13,
-  },
-  secondaryButtonLabel: {
-    color: '#e2e8f0',
+  primaryActionLabel: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
   },
   signatureBox: {
     borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#0f1f14',
     borderWidth: 1,
-    borderColor: '#1f7a3f',
+    borderColor: '#ef4444',
+    backgroundColor: '#200b0b',
+    padding: 12,
     gap: 4,
   },
   signatureLabel: {
-    color: '#86efac',
-    fontWeight: '600',
-    fontSize: 12,
+    color: '#fecaca',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   signatureValue: {
-    color: '#dcfce7',
+    color: '#fff',
     fontSize: 12,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
 });
