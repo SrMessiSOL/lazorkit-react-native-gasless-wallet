@@ -1,5 +1,14 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Image,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import * as anchor from '@coral-xyz/anchor';
 import { LazorKitProvider, useWallet } from '@lazorkit/wallet-mobile-adapter';
 
@@ -83,43 +92,93 @@ function WalletPanel() {
   }, [amountSol, recipient, refreshBalance, signAndSendTransaction, smartWalletPubkey]);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Seedless + Gasless Solana Wallet</Text>
-      <Text style={styles.caption}>Address: {walletAddress}</Text>
-      <Text style={styles.caption}>Balance: {balanceSol} SOL</Text>
+    <View style={styles.walletCard}>
+      <View style={styles.walletHeader}>
+        <Text style={styles.walletTitle}>Professional Seedless Wallet</Text>
+        <Text style={styles.walletSubtitle}>Secure, gasless Solana transfers on Devnet.</Text>
+      </View>
+
+      <View style={styles.infoPill}>
+        <Text style={styles.infoLabel}>Smart Wallet</Text>
+        <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
+          {walletAddress}
+        </Text>
+      </View>
+
+      <View style={styles.balanceRow}>
+        <Text style={styles.balanceLabel}>Available Balance</Text>
+        <Text style={styles.balanceValue}>{balanceSol} SOL</Text>
+      </View>
 
       <View style={styles.row}>
         <AppButton
-          title={isConnected ? 'Refresh' : 'Connect'}
+          title={isConnected ? 'Refresh Balance' : 'Connect Wallet'}
           busy={isConnecting}
           onPress={isConnected ? refreshBalance : onConnect}
         />
-        <AppButton title="Disconnect" disabled={!isConnected} onPress={onDisconnect} />
+        <AppButton title="Disconnect" disabled={!isConnected} variant="secondary" onPress={onDisconnect} />
       </View>
 
-      <TextInput
-        style={styles.input}
-        value={recipient}
-        onChangeText={setRecipient}
-        placeholder="Recipient wallet"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <TextInput
-        style={styles.input}
-        value={amountSol}
-        onChangeText={setAmountSol}
-        placeholder="Amount (SOL)"
-        keyboardType="decimal-pad"
-      />
+      <View style={styles.formGroup}>
+        <Text style={styles.inputLabel}>Recipient Address</Text>
+        <TextInput
+          style={styles.input}
+          value={recipient}
+          onChangeText={setRecipient}
+          placeholder="Paste destination wallet"
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor="#71717a"
+        />
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.inputLabel}>Amount (SOL)</Text>
+        <TextInput
+          style={styles.input}
+          value={amountSol}
+          onChangeText={setAmountSol}
+          placeholder="0.01"
+          keyboardType="decimal-pad"
+          placeholderTextColor="#71717a"
+        />
+      </View>
 
       <AppButton
-        title={isSigning ? 'Sending…' : 'Send Gasless'}
+        title={isSigning ? 'Sending Transaction…' : 'Send Gasless Transfer'}
         disabled={!isConnected || isSigning}
         onPress={onSend}
       />
 
-      {lastSignature ? <Text style={styles.signature}>Last signature: {lastSignature}</Text> : null}
+      {lastSignature ? (
+        <View style={styles.signatureBox}>
+          <Text style={styles.signatureLabel}>Last Signature</Text>
+          <Text style={styles.signatureValue} numberOfLines={2} ellipsizeMode="middle">
+            {lastSignature}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function LoginScreen({ onContinue }: { onContinue: () => void }) {
+  return (
+    <View style={styles.loginCard}>
+      <View style={styles.logoWrap}>
+        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+      </View>
+
+      <Text style={styles.brandName}>LazorKit Pro Wallet</Text>
+      <Text style={styles.brandTagline}>
+        Seedless onboarding, gasless execution, and a premium mobile wallet experience.
+      </Text>
+
+      <Pressable style={styles.ctaButton} onPress={onContinue}>
+        <Text style={styles.ctaLabel}>Log In & Continue</Text>
+      </Pressable>
+
+      <Text style={styles.hintText}>By continuing, you will be redirected to your secure wallet workspace.</Text>
     </View>
   );
 }
@@ -129,11 +188,13 @@ function AppButton({
   onPress,
   disabled,
   busy,
+  variant = 'primary',
 }: {
   title: string;
   onPress: () => void | Promise<void>;
   disabled?: boolean;
   busy?: boolean;
+  variant?: 'primary' | 'secondary';
 }) {
   const handlePress = useCallback(async () => {
     try {
@@ -144,9 +205,33 @@ function AppButton({
   }, [onPress]);
 
   return (
-    <Pressable style={[styles.button, disabled && styles.buttonDisabled]} disabled={disabled || busy} onPress={handlePress}>
-      <Text style={styles.buttonLabel}>{title}</Text>
+    <Pressable
+      style={[
+        styles.button,
+        variant === 'secondary' && styles.secondaryButton,
+        (disabled || busy) && styles.buttonDisabled,
+      ]}
+      disabled={disabled || busy}
+      onPress={handlePress}
+    >
+      <Text style={[styles.buttonLabel, variant === 'secondary' && styles.secondaryButtonLabel]}>{title}</Text>
     </Pressable>
+  );
+}
+
+function AppContent() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const handleContinue = useCallback(() => {
+    setIsLoggedIn(true);
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.page}>
+      <View style={styles.backgroundGlowTop} />
+      <View style={styles.backgroundGlowBottom} />
+      <View style={styles.content}>{isLoggedIn ? <WalletPanel /> : <LoginScreen onContinue={handleContinue} />}</View>
+    </SafeAreaView>
   );
 }
 
@@ -158,9 +243,7 @@ export default function ProfessionalSeedlessGaslessWallet() {
       configPaymaster={{ paymasterUrl: PAYMASTER_URL }}
       isDebug
     >
-      <View style={styles.page}>
-        <WalletPanel />
-      </View>
+      <AppContent />
     </LazorKitProvider>
   );
 }
@@ -168,44 +251,176 @@ export default function ProfessionalSeedlessGaslessWallet() {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: '#09090b',
-    justifyContent: 'center',
-    padding: 16,
+    backgroundColor: '#05060a',
   },
-  card: {
-    borderRadius: 16,
-    backgroundColor: '#18181b',
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  backgroundGlowTop: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 140,
+    backgroundColor: '#1d4ed8',
+    opacity: 0.2,
+    top: -80,
+    left: -70,
+  },
+  backgroundGlowBottom: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 120,
+    backgroundColor: '#14b8a6',
+    opacity: 0.16,
+    bottom: -70,
+    right: -60,
+  },
+  loginCard: {
+    borderRadius: 24,
+    backgroundColor: '#10111a',
     borderWidth: 1,
-    borderColor: '#27272a',
-    padding: 16,
+    borderColor: '#222538',
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
     gap: 12,
   },
-  title: {
+  logoWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#171b2d',
+    borderWidth: 1,
+    borderColor: '#2c3358',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  logo: {
+    width: 56,
+    height: 56,
+  },
+  brandName: {
+    color: '#f8fafc',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  brandTagline: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  ctaButton: {
+    width: '100%',
+    backgroundColor: '#2563eb',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  ctaLabel: {
+    color: '#f8fafc',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  hintText: {
+    color: '#71717a',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  walletCard: {
+    borderRadius: 22,
+    backgroundColor: '#10111a',
+    borderWidth: 1,
+    borderColor: '#222538',
+    padding: 18,
+    gap: 14,
+  },
+  walletHeader: {
+    gap: 4,
+  },
+  walletTitle: {
+    color: '#f8fafc',
     fontSize: 20,
     fontWeight: '700',
-    color: '#fafafa',
   },
-  caption: {
+  walletSubtitle: {
     color: '#a1a1aa',
-    fontSize: 12,
+    fontSize: 13,
+  },
+  infoPill: {
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#16182a',
+    borderWidth: 1,
+    borderColor: '#2b3257',
+    gap: 4,
+  },
+  infoLabel: {
+    color: '#94a3b8',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoValue: {
+    color: '#e2e8f0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  balanceLabel: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  balanceValue: {
+    color: '#22c55e',
+    fontWeight: '700',
+    fontSize: 16,
   },
   row: {
     flexDirection: 'row',
     gap: 8,
   },
+  formGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   input: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3f3f46',
-    color: '#fafafa',
+    borderColor: '#30344f',
+    color: '#f8fafc',
+    backgroundColor: '#121527',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    fontSize: 14,
   },
   button: {
+    flex: 1,
     backgroundColor: '#2563eb',
-    borderRadius: 10,
+    borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
+  },
+  secondaryButton: {
+    backgroundColor: '#1f2937',
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   buttonDisabled: {
     opacity: 0.5,
@@ -214,9 +429,26 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     textAlign: 'center',
+    fontSize: 13,
   },
-  signature: {
+  secondaryButtonLabel: {
+    color: '#e2e8f0',
+  },
+  signatureBox: {
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#0f1f14',
+    borderWidth: 1,
+    borderColor: '#1f7a3f',
+    gap: 4,
+  },
+  signatureLabel: {
     color: '#86efac',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  signatureValue: {
+    color: '#dcfce7',
     fontSize: 12,
   },
 });
