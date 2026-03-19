@@ -1,880 +1,454 @@
-"use client"
-
-import { useWallet } from "@lazorkit/wallet-mobile-adapter"
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
+  Alert,
+  Image,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
   Text,
   TextInput,
-  StyleSheet,
-  Alert,
-  TouchableOpacity,
-  Modal,
-  RefreshControl,
-} from "react-native"
-import { useState } from "react"
-import { Connection, Transaction, ComputeBudgetProgram, VersionedTransaction } from "@solana/web3.js"
-import * as Clipboard from "expo-clipboard"
-import { PublicKey, type AddressLookupTableAccount, TransactionMessage } from "@solana/web3.js"
-import { LAMPORTS_PER_SOL } from "@solana/web3.js"
-import { getAssociatedTokenAddress, getAccount } from "@solana/spl-token"
-import { Image } from "react-native"
-import { useEffect } from "react"
-import { ScrollView } from "react-native"
-import { Buffer } from "buffer"
-import { Linking as RNLinking } from "react-native"
-import * as ExpoLinking from "expo-linking"
-import { DEV_API_URLS } from "@raydium-io/raydium-sdk-v2"
-import { Ionicons } from "@expo/vector-icons"
-import { CLUSTER, RPC_URL } from "../config/solana"
-import { TOKENS } from "../constants/tokens"
+  View,
+} from 'react-native';
+import * as anchor from '@coral-xyz/anchor';
+import { LazorKitProvider, useWallet } from '@lazorkit/wallet-mobile-adapter';
 
-export default function App() {
-  return <WalletScreen />
-}
+const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+const PORTAL_URL = 'https://portal.lazor.sh';
+const PAYMASTER_URL = 'https://lazorkit-paymaster.onrender.com';
+const REDIRECT_HOME = 'exp://192.168.0.106:8081';
+const REDIRECT_SIGN = 'prowallet://callback';
 
-// Wallet Screen with Connect and Swap
-function WalletScreen() {
-  const { connect, signAndSendTransaction, isConnected, smartWalletPubkey, disconnect } = useWallet()
-  const [isLoading, setIsLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [solBalance, setSolBalance] = useState(0)
-  const [usdcBalance, setUsdcBalance] = useState(0)
-  const [showSwapModal, setShowSwapModal] = useState(false)
-  const [showReceiveModal, setShowReceiveModal] = useState(false)
-  const [showActivityModal, setShowActivityModal] = useState(false)
-  const [swapDirection, setSwapDirection] = useState<"usdc-to-sol" | "sol-to-usdc">("usdc-to-sol")
-  const [swapAmount, setSwapAmount] = useState("")
-  const [solPrice, setSolPrice] = useState(0)
-  const [activityHistory, setActivityHistory] = useState<any[]>([])
-  const redirectUrl = ExpoLinking.createURL("/")
+const SOL_LAMPORTS = 1_000_000_000;
 
-  const fetchSolPrice = async () => {
-    try {
-      const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
-      const data = await response.json()
-      setSolPrice(data.solana.usd)
-    } catch (error) {
-      console.error("Failed to fetch SOL price:", error)
-      setSolPrice(0)
+function WalletPanel() {
+  const {
+    connect,
+    disconnect,
+    signAndSendTransaction,
+    smartWalletPubkey,
+    connection,
+    isConnected,
+    isConnecting,
+    isSigning,
+  } = useWallet();
+
+  const [recipient, setRecipient] = useState('');
+  const [amountSol, setAmountSol] = useState('0.01');
+  const [balanceSol, setBalanceSol] = useState('0.0000');
+  const [lastSignature, setLastSignature] = useState('');
+
+  const walletAddress = useMemo(() => smartWalletPubkey?.toBase58() ?? '-', [smartWalletPubkey]);
+
+  const refreshBalance = useCallback(async () => {
+    if (!smartWalletPubkey) return;
+    const lamports = await connection.getBalance(smartWalletPubkey, 'confirmed');
+    setBalanceSol((lamports / SOL_LAMPORTS).toFixed(4));
+  }, [connection, smartWalletPubkey]);
+
+  const onConnect = useCallback(async () => {
+    await connect({ redirectUrl: REDIRECT_HOME });
+    await refreshBalance();
+  }, [connect, refreshBalance]);
+
+  const onDisconnect = useCallback(async () => {
+    await disconnect();
+    setLastSignature('');
+    setBalanceSol('0.0000');
+  }, [disconnect]);
+
+  const onSend = useCallback(async () => {
+    if (!smartWalletPubkey) {
+      Alert.alert('Connect first', 'Please connect your wallet before sending.');
+      return;
     }
-  }
 
-  const fetchBalances = async () => {
-    if (!smartWalletPubkey) return
-    const connection = new Connection(RPC_URL)
-    const sol = (await connection.getBalance(smartWalletPubkey)) / LAMPORTS_PER_SOL
-    setSolBalance(sol)
+    const to = new anchor.web3.PublicKey(recipient.trim());
+    const lamports = Math.round(Number(amountSol) * SOL_LAMPORTS);
 
-    try {
-      const usdcAta = await getAssociatedTokenAddress(new PublicKey(TOKENS.USDC.mint), smartWalletPubkey, true)
-      const usdcAcc = await getAccount(connection, usdcAta)
-      const usdc = Number(usdcAcc.amount) / 10 ** 6
-      setUsdcBalance(usdc)
-    } catch (error) {
-      setUsdcBalance(0)
+    if (!Number.isFinite(lamports) || lamports <= 0) {
+      throw new Error('Invalid transfer amount');
     }
-  }
 
-  const fetchActivityHistory = async () => {
-    if (!smartWalletPubkey) return
-    try {
-      const connection = new Connection(RPC_URL)
-      const signatures = await connection.getSignaturesForAddress(smartWalletPubkey, { limit: 20 })
+    const transferIx = anchor.web3.SystemProgram.transfer({
+      fromPubkey: smartWalletPubkey,
+      toPubkey: to,
+      lamports,
+    });
 
-      const history = signatures.map((sig) => ({
-        signature: sig.signature,
-        timestamp: sig.blockTime ? new Date(sig.blockTime * 1000).toLocaleString() : "Unknown",
-        status: sig.err ? "Failed" : "Success",
-        slot: sig.slot,
-      }))
-
-      setActivityHistory(history)
-    } catch (error) {
-      console.error("Failed to fetch activity history:", error)
-      setActivityHistory([])
-    }
-  }
-
-  const onRefresh = async () => {
-    setRefreshing(true)
-    await Promise.all([fetchBalances(), fetchSolPrice(), fetchActivityHistory()])
-    setRefreshing(false)
-  }
-
-  useEffect(() => {
-    if (isConnected) {
-      fetchBalances()
-      fetchSolPrice()
-      fetchActivityHistory()
-      const interval = setInterval(() => {
-        fetchBalances()
-        fetchSolPrice()
-        fetchActivityHistory()
-      }, 10000)
-      return () => clearInterval(interval)
-    }
-  }, [isConnected])
-
-  const handleConnect = async () => {
-    setIsLoading(true)
-    try {
-      await connect({ redirectUrl })
-    } catch (error) {
-      console.error("Connect error:", error)
-      Alert.alert("Connection failed", `Please verify your app redirect URL and LazorKit setup.\n\nRedirect: ${redirectUrl}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleDisconnect = async () => {
-    Alert.alert("Disconnect Wallet", "Are you sure you want to disconnect?", [
-      { text: "Cancel", style: "cancel" },
+    const signature = await signAndSendTransaction(
       {
-        text: "Disconnect",
-        style: "destructive",
-        onPress: async () => {
-          await disconnect()
-          setSolBalance(0)
-          setUsdcBalance(0)
-          setActivityHistory([])
+        instructions: [transferIx],
+        transactionOptions: {
+          clusterSimulation: 'devnet',
+          computeUnitLimit: 300_000,
+          feeToken: 'So11111111111111111111111111111111111111112',
         },
       },
-    ])
-  }
+      { redirectUrl: REDIRECT_SIGN },
+    );
 
-  const handleUSDCFaucet = async () => {
-    if (!smartWalletPubkey) return
-    try {
-      await Clipboard.setStringAsync(smartWalletPubkey.toBase58())
-      Alert.alert("Address Copied", "Paste your address in Circle faucet")
-      RNLinking.openURL("https://faucet.circle.com/")
-    } catch (error) {
-      Alert.alert("Error", "Failed to open faucet")
-    }
-  }
-
-  const handleSwap = async () => {
-    if (!isConnected || !smartWalletPubkey) {
-      Alert.alert("Error", "Connect wallet first")
-      return
-    }
-
-    const amt = Number.parseFloat(swapAmount)
-    if (isNaN(amt) || !amt || amt <= 0) {
-      Alert.alert("Error", "Enter valid amount")
-      return
-    }
-
-    setIsLoading(true)
-    try {
-      const isUsdcToSol = swapDirection === "usdc-to-sol"
-      const inputMint = isUsdcToSol ? TOKENS.USDC.mint : TOKENS.SOL.mint
-      const outputMint = isUsdcToSol ? TOKENS.SOL.mint : TOKENS.USDC.mint
-      const inputDecimals = isUsdcToSol ? TOKENS.USDC.decimals : TOKENS.SOL.decimals
-      const amountRaw = Math.floor(amt * Math.pow(10, inputDecimals))
-      const txVersion = isUsdcToSol ? "LEGACY" : "V0"
-
-      console.log(`[v0] Swap ${isUsdcToSol ? "USDC→SOL" : "SOL→USDC"}:`, { amountRaw, inputMint, outputMint })
-
-      // Get quote
-      const quoteUrl = `${DEV_API_URLS.SWAP_HOST}/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountRaw}&slippageBps=50&txVersion=${txVersion}`
-      const quoteResp = await fetch(quoteUrl)
-      if (!quoteResp.ok) throw new Error("Quote failed")
-      const quoteJson = await quoteResp.json()
-      if (!quoteJson.success) throw new Error(quoteJson.msg || "Quote error")
-
-      // Prepare swap request
-      const connection = new Connection(RPC_URL)
-
-      const swapRequestBody: any = {
-        computeUnitPriceMicroLamports: "100000",
-        swapResponse: quoteJson,
-        txVersion,
-        wallet: smartWalletPubkey.toBase58(),
-      }
-
-      if (isUsdcToSol) {
-        const usdcAta = await getAssociatedTokenAddress(new PublicKey(TOKENS.USDC.mint), smartWalletPubkey, true)
-        const solAta = await getAssociatedTokenAddress(new PublicKey(TOKENS.SOL.mint), smartWalletPubkey, true)
-        swapRequestBody.inputAccount = usdcAta.toBase58()
-        swapRequestBody.outputAccount = solAta.toBase58()
-        swapRequestBody.wrapSol = false
-        swapRequestBody.unwrapSol = true
-      } else {
-        const usdcAta = await getAssociatedTokenAddress(new PublicKey(TOKENS.USDC.mint), smartWalletPubkey, true)
-        swapRequestBody.outputAccount = usdcAta.toBase58()
-        swapRequestBody.wrapSol = true
-        swapRequestBody.unwrapSol = false
-      }
-
-      // Get swap transaction
-      const swapUrl = `${DEV_API_URLS.SWAP_HOST}/transaction/swap-base-in`
-      const swapResp = await fetch(swapUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(swapRequestBody),
-      })
-      if (!swapResp.ok) throw new Error("Swap transaction failed")
-      const swapJson = await swapResp.json()
-      if (!swapJson.success) throw new Error(swapJson.msg || "Swap error")
-
-      const transactionBase64 = swapJson.data[0].transaction
-      const txBuffer = Buffer.from(transactionBase64, "base64")
-
-      let filteredInstructions: any[]
-      let addressLookupTableAccounts: AddressLookupTableAccount[] = []
-
-      if (txVersion === "V0") {
-        const tx = VersionedTransaction.deserialize(txBuffer)
-        const lookupTableAddresses = tx.message.addressTableLookups?.map((lookup) => lookup.accountKey) ?? []
-
-        if (lookupTableAddresses.length > 0) {
-          addressLookupTableAccounts = await Promise.all(
-            lookupTableAddresses.map(async (addr) => {
-              const account = await connection.getAddressLookupTable(addr)
-              if (!account.value) throw new Error(`Failed to fetch LUT: ${addr.toBase58()}`)
-              return account.value
-            }),
-          )
-        }
-
-        const decompiled = TransactionMessage.decompile(tx.message, { addressLookupTableAccounts })
-        filteredInstructions = decompiled.instructions.filter(
-          (ix) => !ix.programId.equals(ComputeBudgetProgram.programId),
-        )
-      } else {
-        const legacyTx = Transaction.from(txBuffer)
-        filteredInstructions = legacyTx.instructions.filter(
-          (ix) => !ix.programId.equals(ComputeBudgetProgram.programId),
-        )
-      }
-
-      const signature = await signAndSendTransaction(
-        {
-          instructions: filteredInstructions,
-          transactionOptions: {
-            computeUnitLimit: 600_000,
-            clusterSimulation: CLUSTER,
-            ...(addressLookupTableAccounts.length > 0 && { addressLookupTableAccounts }),
-          },
-        },
-        { redirectUrl },
-      )
-
-      await fetchBalances()
-      await fetchActivityHistory()
-      setShowSwapModal(false)
-      setSwapAmount("")
-      Alert.alert("Success", `Swap completed!`)
-    } catch (error: any) {
-      console.error("Swap error:", error)
-      Alert.alert("Error", error?.message || "Swap failed")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const totalValue = (solBalance * solPrice + usdcBalance).toFixed(2)
-
-  if (!isConnected) {
-    return (
-      <View style={styles.darkContainer}>
-        <View style={styles.welcomeContainer}>
-          <Image source={{ uri: "https://cryptologos.cc/logos/solana-sol-logo.png" }} style={styles.welcomeLogo} />
-          <Text style={styles.welcomeTitle}>Lazorkit Wallet</Text>
-          <Text style={styles.welcomeSubtitle}>Gasless Solana swaps with passkey security on Devnet</Text>
-
-          <TouchableOpacity style={styles.connectButton} onPress={handleConnect} disabled={isLoading}>
-            <Ionicons name="finger-print" size={24} color="#000" />
-            <Text style={styles.connectButtonText}>{isLoading ? "Connecting..." : "Connect with Biometrics"}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    )
-  }
+    setLastSignature(signature);
+    await refreshBalance();
+  }, [amountSol, recipient, refreshBalance, signAndSendTransaction, smartWalletPubkey]);
 
   return (
-    <View style={styles.darkContainer}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#14F195" colors={["#14F195"]} />
-        }
-      >
-        <View style={styles.networkPill}>
-          <Ionicons name="planet-outline" size={14} color="#14F195" />
-          <Text style={styles.networkPillText}>Connected to {CLUSTER.toUpperCase()}</Text>
-        </View>
-        <View style={styles.balanceHeader}>
-          <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
-            <Ionicons name="log-out-outline" size={20} color="#ff4444" />
-            <Text style={styles.disconnectText}>Disconnect</Text>
-          </TouchableOpacity>
-          <Text style={styles.totalValue}>${totalValue}</Text>
-        </View>
-
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => setShowReceiveModal(true)}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="qr-code-outline" size={28} color="#9945FF" />
-            </View>
-            <Text style={styles.actionLabel}>Receive</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionButton} onPress={handleUSDCFaucet}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="gift-outline" size={28} color="#9945FF" />
-            </View>
-            <Text style={styles.actionLabel}>SOL/USDC Airdrop</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionButton} onPress={() => setShowSwapModal(true)}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="swap-horizontal-outline" size={28} color="#9945FF" />
-            </View>
-            <Text style={styles.actionLabel}>Swap</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Tokens</Text>
-        </View>
-
-        <View style={styles.tokenList}>
-          <TouchableOpacity style={styles.tokenCard}>
-            <View style={styles.tokenLeft}>
-              <Image source={{ uri: "https://cryptologos.cc/logos/solana-sol-logo.png" }} style={styles.tokenIcon} />
-              <View>
-                <Text style={styles.tokenName}>Solana</Text>
-                <Text style={styles.tokenAmount}>{solBalance.toFixed(4)} SOL</Text>
-              </View>
-            </View>
-            <View style={styles.tokenRight}>
-              <Text style={styles.tokenValue}>${(solBalance * solPrice).toFixed(2)}</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.tokenCard}>
-            <View style={styles.tokenLeft}>
-              <View style={styles.usdcIconContainer}>
-                <Text style={styles.usdcIcon}>$</Text>
-              </View>
-              <View>
-                <Text style={styles.tokenName}>USD Coin</Text>
-                <Text style={styles.tokenAmount}>{usdcBalance.toFixed(2)} USDC</Text>
-              </View>
-            </View>
-            <View style={styles.tokenRight}>
-              <Text style={styles.tokenValue}>${usdcBalance.toFixed(2)}</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      <Modal visible={showReceiveModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Receive</Text>
-              <TouchableOpacity onPress={() => setShowReceiveModal(false)}>
-                <Ionicons name="close" size={28} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.receiveContent}>
-              <Ionicons name="qr-code" size={120} color="#9945FF" />
-              <Text style={styles.receiveLabel}>Your Wallet Address</Text>
-              <Text style={styles.receiveAddress}>{smartWalletPubkey?.toBase58()}</Text>
-              <TouchableOpacity
-                style={styles.copyAddressButton}
-                onPress={async () => {
-                  await Clipboard.setStringAsync(smartWalletPubkey!.toBase58())
-                  Alert.alert("Copied", "Address copied to clipboard")
-                }}
-              >
-                <Ionicons name="copy-outline" size={20} color="#fff" />
-                <Text style={styles.copyAddressText}>Copy Address</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={showSwapModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.swapModalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Gasless Swap</Text>
-              <TouchableOpacity onPress={() => setShowSwapModal(false)}>
-                <Ionicons name="close" size={28} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.swapScrollView}>
-              <View style={styles.swapDirectionSelector}>
-                <TouchableOpacity
-                  style={[styles.directionButton, swapDirection === "usdc-to-sol" && styles.directionButtonActive]}
-                  onPress={() => setSwapDirection("usdc-to-sol")}
-                >
-                  <Text style={[styles.directionText, swapDirection === "usdc-to-sol" && styles.directionTextActive]}>
-                    USDC → SOL
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.directionButton, swapDirection === "sol-to-usdc" && styles.directionButtonActive]}
-                  onPress={() => setSwapDirection("sol-to-usdc")}
-                >
-                  <Text style={[styles.directionText, swapDirection === "sol-to-usdc" && styles.directionTextActive]}>
-                    SOL → USDC
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TextInput
-                style={styles.swapInput}
-                placeholder={`Amount of ${swapDirection === "usdc-to-sol" ? "USDC" : "SOL"}`}
-                placeholderTextColor="#666"
-                value={swapAmount}
-                onChangeText={setSwapAmount}
-                keyboardType="numeric"
-              />
-
-              <Text style={styles.swapHelper}>Powered by Raydium DEX • No gas fees required</Text>
-
-              <TouchableOpacity
-                style={[styles.swapButton, isLoading && styles.swapButtonDisabled]}
-                onPress={handleSwap}
-                disabled={isLoading}
-              >
-                <Text style={styles.swapButtonText}>{isLoading ? "Swapping..." : "Swap Now"}</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={showActivityModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Wallet Activity</Text>
-              <TouchableOpacity onPress={() => setShowActivityModal(false)}>
-                <Ionicons name="close" size={28} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.activityScrollView}>
-              {activityHistory.length === 0 ? (
-                <>
-                  <Text style={styles.activityPlaceholder}>No recent activity</Text>
-                  <Text style={styles.activitySubtext}>Your transaction history will appear here</Text>
-                </>
-              ) : (
-                activityHistory.map((activity, index) => (
-                  <View key={index} style={styles.activityItem}>
-                    <View style={styles.activityItemHeader}>
-                      <Ionicons
-                        name={activity.status === "Success" ? "checkmark-circle" : "close-circle"}
-                        size={24}
-                        color={activity.status === "Success" ? "#14F195" : "#ff4444"}
-                      />
-                      <View style={styles.activityItemContent}>
-                        <Text style={styles.activityItemTitle}>{activity.status}</Text>
-                        <Text style={styles.activityItemTime}>{activity.timestamp}</Text>
-                        <Text style={styles.activityItemSignature} numberOfLines={1}>
-                          {activity.signature}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem} onPress={() => setShowActivityModal(true)}>
-          <Ionicons name="time-outline" size={28} color="#9945FF" />
-        </TouchableOpacity>
+    <View style={styles.walletCard}>
+      <View style={styles.walletHeader}>
+        <Text style={styles.walletTitle}>Professional Seedless Wallet</Text>
+        <Text style={styles.walletSubtitle}>Secure, gasless Solana transfers on Devnet.</Text>
       </View>
+
+      <View style={styles.infoPill}>
+        <Text style={styles.infoLabel}>Smart Wallet</Text>
+        <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
+          {walletAddress}
+        </Text>
+      </View>
+
+      <View style={styles.balanceRow}>
+        <Text style={styles.balanceLabel}>Available Balance</Text>
+        <Text style={styles.balanceValue}>{balanceSol} SOL</Text>
+      </View>
+
+      <View style={styles.row}>
+        <AppButton
+          title={isConnected ? 'Refresh Balance' : 'Connect Wallet'}
+          busy={isConnecting}
+          onPress={isConnected ? refreshBalance : onConnect}
+        />
+        <AppButton title="Disconnect" disabled={!isConnected} variant="secondary" onPress={onDisconnect} />
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.inputLabel}>Recipient Address</Text>
+        <TextInput
+          style={styles.input}
+          value={recipient}
+          onChangeText={setRecipient}
+          placeholder="Paste destination wallet"
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor="#71717a"
+        />
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.inputLabel}>Amount (SOL)</Text>
+        <TextInput
+          style={styles.input}
+          value={amountSol}
+          onChangeText={setAmountSol}
+          placeholder="0.01"
+          keyboardType="decimal-pad"
+          placeholderTextColor="#71717a"
+        />
+      </View>
+
+      <AppButton
+        title={isSigning ? 'Sending Transaction…' : 'Send Gasless Transfer'}
+        disabled={!isConnected || isSigning}
+        onPress={onSend}
+      />
+
+      {lastSignature ? (
+        <View style={styles.signatureBox}>
+          <Text style={styles.signatureLabel}>Last Signature</Text>
+          <Text style={styles.signatureValue} numberOfLines={2} ellipsizeMode="middle">
+            {lastSignature}
+          </Text>
+        </View>
+      ) : null}
     </View>
-  )
+  );
+}
+
+function LoginScreen({ onContinue }: { onContinue: () => void }) {
+  return (
+    <View style={styles.loginCard}>
+      <View style={styles.logoWrap}>
+        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+      </View>
+
+      <Text style={styles.brandName}>LazorKit Pro Wallet</Text>
+      <Text style={styles.brandTagline}>
+        Seedless onboarding, gasless execution, and a premium mobile wallet experience.
+      </Text>
+
+      <Pressable style={styles.ctaButton} onPress={onContinue}>
+        <Text style={styles.ctaLabel}>Log In & Continue</Text>
+      </Pressable>
+
+      <Text style={styles.hintText}>By continuing, you will be redirected to your secure wallet workspace.</Text>
+    </View>
+  );
+}
+
+function AppButton({
+  title,
+  onPress,
+  disabled,
+  busy,
+  variant = 'primary',
+}: {
+  title: string;
+  onPress: () => void | Promise<void>;
+  disabled?: boolean;
+  busy?: boolean;
+  variant?: 'primary' | 'secondary';
+}) {
+  const handlePress = useCallback(async () => {
+    try {
+      await onPress();
+    } catch (error) {
+      Alert.alert('Action failed', error instanceof Error ? error.message : String(error));
+    }
+  }, [onPress]);
+
+  return (
+    <Pressable
+      style={[
+        styles.button,
+        variant === 'secondary' && styles.secondaryButton,
+        (disabled || busy) && styles.buttonDisabled,
+      ]}
+      disabled={disabled || busy}
+      onPress={handlePress}
+    >
+      <Text style={[styles.buttonLabel, variant === 'secondary' && styles.secondaryButtonLabel]}>{title}</Text>
+    </Pressable>
+  );
+}
+
+function AppContent() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const handleContinue = useCallback(() => {
+    setIsLoggedIn(true);
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.page}>
+      <View style={styles.backgroundGlowTop} />
+      <View style={styles.backgroundGlowBottom} />
+      <View style={styles.content}>{isLoggedIn ? <WalletPanel /> : <LoginScreen onContinue={handleContinue} />}</View>
+    </SafeAreaView>
+  );
+}
+
+export default function ProfessionalSeedlessGaslessWallet() {
+  return (
+    <LazorKitProvider
+      rpcUrl={DEVNET_RPC_URL}
+      portalUrl={PORTAL_URL}
+      configPaymaster={{ paymasterUrl: PAYMASTER_URL }}
+      isDebug
+    >
+      <AppContent />
+    </LazorKitProvider>
+  );
 }
 
 const styles = StyleSheet.create({
-  darkContainer: {
+  page: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: '#05060a',
   },
-  welcomeContainer: {
+  content: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
+    justifyContent: 'center',
+    padding: 20,
   },
-  welcomeLogo: {
-    width: 100,
-    height: 100,
-    marginBottom: 24,
+  backgroundGlowTop: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 140,
+    backgroundColor: '#1d4ed8',
+    opacity: 0.2,
+    top: -80,
+    left: -70,
   },
-  welcomeTitle: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#fff",
-    marginBottom: 8,
+  backgroundGlowBottom: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 120,
+    backgroundColor: '#14b8a6',
+    opacity: 0.16,
+    bottom: -70,
+    right: -60,
   },
-  welcomeSubtitle: {
-    fontSize: 16,
-    color: "#888",
-    textAlign: "center",
-    marginBottom: 48,
-  },
-  connectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#14F195",
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 16,
+  loginCard: {
+    borderRadius: 24,
+    backgroundColor: '#10111a',
+    borderWidth: 1,
+    borderColor: '#222538',
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
     gap: 12,
   },
-  connectButtonText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-  disconnectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-end",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 20,
-    gap: 6,
-    marginBottom: 16,
-    marginRight: 16,
-  },
-  disconnectText: {
-    fontSize: 13,
-    color: "#ff4444",
-    fontWeight: "600",
-  },
-  networkPill: {
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 20,
-    backgroundColor: "#10261f",
-    borderColor: "#1b4d3d",
+  logoWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#171b2d',
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderColor: '#2c3358',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  networkPillText: {
-    color: "#14F195",
-    fontSize: 12,
-    fontWeight: "600",
+  logo: {
+    width: 56,
+    height: 56,
+  },
+  brandName: {
+    color: '#f8fafc',
+    fontSize: 24,
+    fontWeight: '800',
     letterSpacing: 0.4,
   },
-  balanceHeader: {
-    alignItems: "center",
-    paddingTop: 40,
-    paddingBottom: 32,
-  },
-  totalValue: {
-    fontSize: 56,
-    fontWeight: "700",
-    color: "#fff",
+  brandTagline: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
     marginBottom: 8,
   },
-  changeIndicator: {
-    fontSize: 18,
-    color: "#14F195",
-    fontWeight: "600",
-  },
-  actionsGrid: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingHorizontal: 16,
-    marginBottom: 32,
-  },
-  actionButton: {
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
-  actionIconContainer: {
-    width: 64,
-    height: 64,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  actionLabel: {
-    fontSize: 13,
-    color: "#fff",
-    fontWeight: "500",
-    textAlign: "center",
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    gap: 24,
-    paddingHorizontal: 24,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
-  },
-  tokenList: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  tokenCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#1a1a1a",
-    padding: 16,
-    borderRadius: 16,
-  },
-  tokenLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  tokenIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  usdcIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#2775CA",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  usdcIcon: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#fff",
-  },
-  tokenName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  tokenAmount: {
-    fontSize: 14,
-    color: "#888",
-  },
-  tokenRight: {
-    alignItems: "flex-end",
-  },
-  tokenValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  tokenChange: {
-    fontSize: 14,
-    color: "#14F195",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.85)",
-    justifyContent: "flex-end",
-  },
-  modal: {
-    backgroundColor: "#1a1a1a",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 32,
-    maxHeight: "80%",
-  },
-  swapModalContainer: {
-    backgroundColor: "#1a1a1a",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 32,
-    maxHeight: "70%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#333",
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#fff",
-  },
-  receiveContent: {
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  receiveLabel: {
-    fontSize: 16,
-    color: "#888",
-    marginTop: 24,
-    marginBottom: 12,
-  },
-  receiveAddress: {
-    fontSize: 14,
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 24,
-    paddingHorizontal: 16,
-  },
-  copyAddressButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#9945FF",
-    paddingHorizontal: 24,
+  ctaButton: {
+    width: '100%',
+    backgroundColor: '#2563eb',
+    borderRadius: 14,
     paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
+    alignItems: 'center',
+    marginTop: 2,
   },
-  copyAddressText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  swapScrollView: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-  },
-  swapDirectionSelector: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 24,
-  },
-  directionButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#2a2a2a",
-    alignItems: "center",
-  },
-  directionButtonActive: {
-    backgroundColor: "#9945FF",
-  },
-  directionText: {
+  ctaLabel: {
+    color: '#f8fafc',
+    fontWeight: '700',
     fontSize: 15,
-    fontWeight: "600",
-    color: "#888",
   },
-  directionTextActive: {
-    color: "#fff",
+  hintText: {
+    color: '#71717a',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
   },
-  swapInput: {
-    backgroundColor: "#2a2a2a",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: "#fff",
-    marginBottom: 16,
+  walletCard: {
+    borderRadius: 22,
+    backgroundColor: '#10111a',
+    borderWidth: 1,
+    borderColor: '#222538',
+    padding: 18,
+    gap: 14,
   },
-  swapHelper: {
+  walletHeader: {
+    gap: 4,
+  },
+  walletTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  walletSubtitle: {
+    color: '#a1a1aa',
     fontSize: 13,
-    color: "#888",
-    textAlign: "center",
-    marginBottom: 24,
   },
-  swapButton: {
-    backgroundColor: "#14F195",
-    paddingVertical: 16,
+  infoPill: {
     borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 20,
+    padding: 12,
+    backgroundColor: '#16182a',
+    borderWidth: 1,
+    borderColor: '#2b3257',
+    gap: 4,
   },
-  swapButtonDisabled: {
+  infoLabel: {
+    color: '#94a3b8',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoValue: {
+    color: '#e2e8f0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  balanceLabel: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  balanceValue: {
+    color: '#22c55e',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  formGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  input: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#30344f',
+    color: '#f8fafc',
+    backgroundColor: '#121527',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+  },
+  button: {
+    flex: 1,
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  secondaryButton: {
+    backgroundColor: '#1f2937',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  buttonDisabled: {
     opacity: 0.5,
   },
-  swapButtonText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#000",
-  },
-  activityScrollView: {
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-  },
-  activityPlaceholder: {
-    fontSize: 18,
-    color: "#888",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  activitySubtext: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-  },
-  activityItem: {
-    backgroundColor: "#2a2a2a",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  activityItemHeader: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  activityItemContent: {
-    flex: 1,
-  },
-  activityItemTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  activityItemTime: {
+  buttonLabel: {
+    color: '#fff',
+    fontWeight: '600',
+    textAlign: 'center',
     fontSize: 13,
-    color: "#888",
-    marginBottom: 4,
   },
-  activityItemSignature: {
-    fontSize: 11,
-    color: "#666",
-    fontFamily: "monospace",
+  secondaryButtonLabel: {
+    color: '#e2e8f0',
   },
-  bottomNav: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#0a0a0a",
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#1a1a1a",
+  signatureBox: {
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#0f1f14',
+    borderWidth: 1,
+    borderColor: '#1f7a3f',
+    gap: 4,
   },
-  navItem: {
-    padding: 8,
+  signatureLabel: {
+    color: '#86efac',
+    fontWeight: '600',
+    fontSize: 12,
   },
-})
+  signatureValue: {
+    color: '#dcfce7',
+    fontSize: 12,
+  },
+});
