@@ -28,7 +28,6 @@ const SOL_LAMPORTS = 1_000_000_000;
 
 type TokenHolding = {
   symbol: string;
-  name: string;
   amount: number;
   usdPrice: number;
   usdValue: number;
@@ -38,20 +37,33 @@ type TokenHolding = {
 function LoginScreen({ onConnect, busy }: { onConnect: () => void | Promise<void>; busy?: boolean }) {
   return (
     <View style={styles.loginCard}>
-      <View style={styles.logoRing}>
-        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
-      </View>
+      <LinearGradient colors={['#320909', '#0b0b0b']} style={styles.loginGlow}>
+        <View style={styles.logoRing}>
+          <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+        </View>
+      </LinearGradient>
 
       <Text style={styles.brandName}>LazorKit Wallet Pro</Text>
-      <Text style={styles.brandSubtitle}>Choose any wallet from Lazor login and continue with seedless, gasless transfers.</Text>
+      <Text style={styles.brandSubtitle}>The premium seedless wallet with instant gasless transactions.</Text>
 
       <Pressable style={[styles.ctaButton, busy && styles.buttonDisabled]} onPress={onConnect} disabled={busy}>
         <LinearGradient colors={['#ef4444', '#fca5a5', '#ffffff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.ctaGradient}>
-          <Text style={styles.ctaLabel}>{busy ? 'Opening Lazor Login…' : 'Connect with LazorKit'}</Text>
+          <Text style={styles.ctaLabel}>{busy ? 'Opening Lazor Login…' : 'Connect Wallet'}</Text>
         </LinearGradient>
       </Pressable>
 
-      <Text style={styles.helperText}>You will be redirected to Lazor login to pick the wallet you want to connect.</Text>
+      <Text style={styles.helperText}>You’ll be redirected to Lazor login to choose and authorize your wallet.</Text>
+    </View>
+  );
+}
+
+function QuickAction({ label }: { label: string }) {
+  return (
+    <View style={styles.quickAction}>
+      <View style={styles.quickActionIcon}>
+        <Text style={styles.quickActionIconText}>{label[0]}</Text>
+      </View>
+      <Text style={styles.quickActionLabel}>{label}</Text>
     </View>
   );
 }
@@ -63,19 +75,17 @@ function TokenRow({ token }: { token: TokenHolding }) {
     <View style={styles.tokenRow}>
       <View style={styles.tokenLeft}>
         <View style={styles.tokenIconCircle}>
-          <Text style={styles.tokenIconLabel}>{token.symbol.slice(0, 1)}</Text>
+          <Text style={styles.tokenIconLabel}>{token.symbol}</Text>
         </View>
-
         <View>
           <Text style={styles.tokenSymbol}>{token.symbol}</Text>
-          <Text style={styles.tokenMeta}>
-            {token.amount.toFixed(4)} · ${token.usdPrice.toFixed(2)}
-          </Text>
+          <Text style={styles.tokenMeta}>{token.amount.toFixed(4)} tokens</Text>
         </View>
       </View>
 
       <View style={styles.tokenRight}>
         <Text style={styles.tokenValue}>${token.usdValue.toFixed(2)}</Text>
+        <Text style={styles.tokenMeta}>${token.usdPrice.toFixed(2)}</Text>
         <Text style={[styles.tokenChange, isNegative ? styles.tokenNegative : styles.tokenPositive]}>
           {token.change24h.toFixed(2)}%
         </Text>
@@ -85,14 +95,7 @@ function TokenRow({ token }: { token: TokenHolding }) {
 }
 
 function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
-  const {
-    disconnect,
-    signAndSendTransaction,
-    smartWalletPubkey,
-    connection,
-    isConnected,
-    isSigning,
-  } = useWallet();
+  const { disconnect, signAndSendTransaction, smartWalletPubkey, connection, isConnected, isSigning } = useWallet();
 
   const [recipient, setRecipient] = useState('');
   const [amountSol, setAmountSol] = useState('0.01');
@@ -109,22 +112,8 @@ function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
 
   const tokenHoldings = useMemo<TokenHolding[]>(() => {
     const holdings: TokenHolding[] = [
-      {
-        symbol: 'SOL',
-        name: 'Solana',
-        amount: solBalance,
-        usdPrice: solPrice,
-        usdValue: solBalance * solPrice,
-        change24h: solChange,
-      },
-      {
-        symbol: 'USDC',
-        name: 'USD Coin',
-        amount: usdcBalance,
-        usdPrice: usdcPrice,
-        usdValue: usdcBalance * usdcPrice,
-        change24h: usdcChange,
-      },
+      { symbol: 'SOL', amount: solBalance, usdPrice: solPrice, usdValue: solBalance * solPrice, change24h: solChange },
+      { symbol: 'USDC', amount: usdcBalance, usdPrice: usdcPrice, usdValue: usdcBalance * usdcPrice, change24h: usdcChange },
     ];
 
     return holdings.sort((a, b) => b.usdValue - a.usdValue);
@@ -226,15 +215,31 @@ function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.walletCard}>
-        <View style={styles.walletTopRow}>
-          <View>
-            <Text style={styles.walletTitle}>Portfolio</Text>
-            <Text style={styles.walletSubtitle}>Gasless mobile wallet</Text>
+        <LinearGradient colors={['#2b0b0b', '#0f0f10']} style={styles.heroCard}>
+          <View style={styles.heroHeader}>
+            <View style={styles.profileDot} />
+            <Text style={styles.heroWalletLabel}>Lazor Wallet</Text>
+            <Pressable style={styles.secondaryAction} onPress={handleDisconnect}>
+              <Text style={styles.secondaryActionLabel}>Disconnect</Text>
+            </Pressable>
           </View>
 
-          <Pressable style={styles.secondaryAction} onPress={handleDisconnect}>
-            <Text style={styles.secondaryActionLabel}>Disconnect</Text>
-          </Pressable>
+          <Text style={styles.heroValue}>${totalValue.toFixed(2)}</Text>
+          <Text style={styles.heroSubValue}>24h: {solChange.toFixed(2)}%</Text>
+
+          <View style={styles.quickActionRow}>
+            <QuickAction label="Receive" />
+            <QuickAction label="Buy" />
+            <QuickAction label="Swap" />
+            <QuickAction label="Send" />
+          </View>
+        </LinearGradient>
+
+        <View style={styles.tabRow}>
+          <Text style={styles.tabActive}>Tokens</Text>
+          <Text style={styles.tabInactive}>Activity</Text>
+          <Text style={styles.tabInactive}>NFTs</Text>
+          <Text style={styles.tabInactive}>Settings</Text>
         </View>
 
         <View style={styles.pill}>
@@ -243,11 +248,6 @@ function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
             {walletAddress}
           </Text>
         </View>
-
-        <LinearGradient colors={['#450a0a', '#991b1b', '#fee2e2']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.balancePanel}>
-          <Text style={styles.balancePanelLabel}>Total Portfolio Value</Text>
-          <Text style={styles.balancePanelValue}>${totalValue.toFixed(2)}</Text>
-        </LinearGradient>
 
         <View style={styles.actionRow}>
           <Pressable style={styles.secondaryPillButton} onPress={refreshPortfolio}>
@@ -259,7 +259,7 @@ function WalletPanel({ onDisconnected }: { onDisconnected: () => void }) {
         </View>
 
         <View style={styles.tokensPanel}>
-          <Text style={styles.panelTitle}>Tokens</Text>
+          <Text style={styles.panelTitle}>Token Holdings</Text>
           {tokenHoldings.map((token) => (
             <TokenRow key={token.symbol} token={token} />
           ))}
@@ -384,7 +384,7 @@ function AppContent() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <LinearGradient colors={['#0a0a0a', '#230b0b', '#ffffff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.background}>
+      <LinearGradient colors={['#080808', '#290909', '#ffffff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.background}>
         <View style={styles.overlay} />
         <View style={styles.contentWrap}>
           {showLogin || !isConnected ? (
@@ -421,7 +421,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
   loaderWrap: {
     flex: 1,
@@ -432,51 +432,57 @@ const styles = StyleSheet.create({
   contentWrap: {
     flex: 1,
     justifyContent: 'center',
-    padding: 16,
+    padding: 14,
   },
   scrollContent: {
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   loginCard: {
-    borderRadius: 24,
-    backgroundColor: '#0b0b0b',
+    borderRadius: 28,
+    backgroundColor: '#090909',
     borderWidth: 1,
-    borderColor: '#262626',
+    borderColor: '#282828',
     paddingHorizontal: 22,
-    paddingVertical: 30,
+    paddingVertical: 28,
     gap: 14,
     alignItems: 'center',
     shadowColor: '#ef4444',
-    shadowOpacity: 0.22,
-    shadowRadius: 22,
+    shadowOpacity: 0.24,
+    shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 },
   },
+  loginGlow: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logoRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     borderWidth: 2,
     borderColor: '#ef4444',
     backgroundColor: '#111',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
   },
   logo: {
-    width: 60,
-    height: 60,
+    width: 56,
+    height: 56,
   },
   brandName: {
     color: '#fff',
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 0.2,
   },
   brandSubtitle: {
     color: '#d4d4d4',
     textAlign: 'center',
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   ctaButton: {
     width: '100%',
@@ -490,7 +496,7 @@ const styles = StyleSheet.create({
   },
   ctaLabel: {
     color: '#09090b',
-    fontWeight: '800',
+    fontWeight: '900',
     fontSize: 15,
   },
   helperText: {
@@ -500,34 +506,56 @@ const styles = StyleSheet.create({
   },
   walletCard: {
     borderRadius: 24,
-    backgroundColor: '#090909',
+    backgroundColor: '#080808',
     borderWidth: 1,
-    borderColor: '#2a2a2a',
-    padding: 16,
+    borderColor: '#242424',
+    padding: 12,
     gap: 12,
   },
-  walletTopRow: {
+  heroCard: {
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#3a1a1a',
+  },
+  heroHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
   },
-  walletTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '800',
+  profileDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1f1f1f',
+    borderWidth: 1,
+    borderColor: '#ef4444',
   },
-  walletSubtitle: {
-    color: '#d4d4d4',
-    fontSize: 12,
+  heroWalletLabel: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '800',
+    flex: 1,
+  },
+  heroValue: {
+    color: '#fff',
+    fontSize: 42,
+    fontWeight: '900',
+    marginTop: 10,
+  },
+  heroSubValue: {
+    color: '#fca5a5',
+    fontSize: 14,
+    fontWeight: '700',
     marginTop: 2,
+    marginBottom: 12,
   },
   secondaryAction: {
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#525252',
+    borderColor: '#555',
     backgroundColor: '#111',
   },
   secondaryActionLabel: {
@@ -535,39 +563,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  quickActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quickAction: {
+    alignItems: 'center',
+    gap: 6,
+    width: '24%',
+  },
+  quickActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionIconText: {
+    color: '#fff',
+    fontWeight: '900',
+  },
+  quickActionLabel: {
+    color: '#f5f5f5',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+  },
+  tabActive: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+    borderBottomWidth: 2,
+    borderBottomColor: '#ef4444',
+    paddingBottom: 4,
+  },
+  tabInactive: {
+    color: '#888',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   pill: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#404040',
-    backgroundColor: '#141414',
+    borderColor: '#3c3c3c',
+    backgroundColor: '#121212',
     padding: 12,
     gap: 4,
   },
   pillLabel: {
     color: '#a3a3a3',
     fontSize: 11,
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     fontWeight: '700',
   },
   pillValue: {
     color: '#f5f5f5',
     fontSize: 13,
     fontWeight: '600',
-  },
-  balancePanel: {
-    borderRadius: 14,
-    padding: 14,
-  },
-  balancePanelLabel: {
-    color: '#1f2937',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  balancePanelValue: {
-    color: '#030712',
-    fontSize: 30,
-    fontWeight: '900',
-    marginTop: 2,
   },
   actionRow: {
     flexDirection: 'row',
@@ -597,16 +656,16 @@ const styles = StyleSheet.create({
   },
   panelTitle: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 17,
+    fontWeight: '900',
   },
   tokenRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#202020',
-    paddingBottom: 8,
+    borderBottomColor: '#222',
+    paddingBottom: 10,
   },
   tokenLeft: {
     flexDirection: 'row',
@@ -615,12 +674,13 @@ const styles = StyleSheet.create({
   },
   tokenRight: {
     alignItems: 'flex-end',
+    gap: 1,
   },
   tokenIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1f1f1f',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#1b1b1b',
     borderWidth: 1,
     borderColor: '#ef4444',
     alignItems: 'center',
@@ -629,12 +689,12 @@ const styles = StyleSheet.create({
   tokenIconLabel: {
     color: '#fff',
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 11,
   },
   tokenSymbol: {
     color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
   },
   tokenMeta: {
     color: '#a3a3a3',
@@ -666,7 +726,7 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#404040',
+    borderColor: '#3a3a3a',
     backgroundColor: '#121212',
     color: '#fff',
     paddingHorizontal: 12,
@@ -683,13 +743,13 @@ const styles = StyleSheet.create({
   primaryActionLabel: {
     color: '#111827',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   signatureBox: {
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#ef4444',
-    backgroundColor: '#200b0b',
+    backgroundColor: '#220d0d',
     padding: 12,
     gap: 4,
   },
